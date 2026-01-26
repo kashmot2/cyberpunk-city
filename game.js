@@ -7,8 +7,8 @@ let clock = new THREE.Clock();
 
 // Movement state
 const keys = { w: false, a: false, s: false, d: false, shift: false, space: false, e: false };
-const moveSpeed = 3;
-const runSpeed = 7;
+const moveSpeed = 2;
+const runSpeed = 5;
 const rotateSpeed = 3;
 
 // Physics
@@ -19,8 +19,8 @@ const jumpForce = 15;
 let isGrounded = false;
 
 // Camera settings - GTA style
-const cameraOffset = new THREE.Vector3(0, 1, 2.5);
-const cameraLookOffset = new THREE.Vector3(0, 0.5, 0);
+const cameraOffset = new THREE.Vector3(0, 0.5, 1.2);
+const cameraLookOffset = new THREE.Vector3(0, 0.25, 0);
 
 // Interaction system
 let nearbyInteractable = null;
@@ -158,11 +158,11 @@ async function loadModels() {
     
     // Load player with animations
     try {
-        const playerGltf = await loadGLTF('models/player-new.glb', (p) => {
+        const playerGltf = await loadGLTF('models/robot.glb', (p) => {
             if (p.total > 0) loadingFill.style.width = 20 + (p.loaded / p.total) * 30 + '%';
         });
         player = playerGltf.scene;
-        player.scale.setScalar(0.5);  // Human-sized
+        player.scale.setScalar(0.02);  // Robot-sized for city
         player.position.set(0, 200, 0);  // Start in air
         player.castShadow = true;
         scene.add(player);
