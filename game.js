@@ -12,7 +12,7 @@ const rotateSpeed = 3;
 // Physics
 let velocityY = 0;
 const gravity = -80;
-const groundLevel = 5;
+const groundLevel = 50;
 
 // Camera settings - GTA style close third-person
 const cameraOffset = new THREE.Vector3(0, 10, 20);
@@ -119,7 +119,7 @@ async function loadModels() {
         });
         player = playerGltf.scene;
         player.scale.setScalar(8);
-        player.position.set(0, 300, 0);
+        player.position.set(0, 400, 0);
         player.castShadow = true;
         scene.add(player);
         
