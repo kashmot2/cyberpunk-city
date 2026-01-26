@@ -5,13 +5,13 @@ let clock = new THREE.Clock();
 
 // Movement
 const keys = { w: false, a: false, s: false, d: false, shift: false };
-const moveSpeed = 5;
-const runSpeed = 15;
+const moveSpeed = 10;
+const runSpeed = 25;
 const rotateSpeed = 3;
 
 // Camera settings - GTA style close third-person
-const cameraOffset = new THREE.Vector3(0, 0.3, 0.8);
-const cameraLookOffset = new THREE.Vector3(0, 0.15, 0);
+const cameraOffset = new THREE.Vector3(0, 2, 5);
+const cameraLookOffset = new THREE.Vector3(0, 1, 0);
 
 // DOM Elements
 const startScreen = document.getElementById('start-screen');
@@ -52,7 +52,7 @@ async function startGame() {
 function initScene() {
     scene = new THREE.Scene();
     
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 50000);
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500000);
     camera.position.set(0, 5, 10);
     
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -113,7 +113,7 @@ async function loadModels() {
             if (p.total > 0) loadingFill.style.width = 20 + (p.loaded / p.total) * 30 + '%';
         });
         player = playerGltf.scene;
-        player.scale.setScalar(0.05);
+        player.scale.setScalar(1);
         player.position.set(0, 2, 20);
         player.castShadow = true;
         scene.add(player);
@@ -167,7 +167,7 @@ async function loadModels() {
             if (p.total > 0) loadingFill.style.width = 50 + (p.loaded / p.total) * 50 + '%';
         });
         const city = cityGltf.scene;
-        city.scale.setScalar(5000);
+        city.scale.setScalar(100000);
         city.position.set(0, 0, 0);
         city.receiveShadow = true;
         scene.add(city);
