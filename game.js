@@ -15,8 +15,8 @@ const gravity = -50;
 const groundLevel = 10;
 
 // Camera settings - GTA style close third-person
-const cameraOffset = new THREE.Vector3(0, 3, 6);
-const cameraLookOffset = new THREE.Vector3(0, 1.5, 0);
+const cameraOffset = new THREE.Vector3(0, 4, 8);
+const cameraLookOffset = new THREE.Vector3(0, 2, 0);
 
 // DOM Elements
 const startScreen = document.getElementById('start-screen');
@@ -118,7 +118,7 @@ async function loadModels() {
             if (p.total > 0) loadingFill.style.width = 20 + (p.loaded / p.total) * 30 + '%';
         });
         player = playerGltf.scene;
-        player.scale.setScalar(1.8);
+        player.scale.setScalar(3);
         player.position.set(0, 300, 0);
         player.castShadow = true;
         scene.add(player);
