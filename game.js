@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { init as initRecast, NavMeshQuery, NavMesh } from '@recast-navigation/core';
+import { init as initRecast, NavMeshQuery } from '@recast-navigation/core';
 import { threeToSoloNavMesh, NavMeshHelper } from '@recast-navigation/three';
 
 // Scene setup
@@ -13,12 +13,21 @@ let currentAction = null;
 let clock = new THREE.Clock();
 let currentTrack = null;
 
-// Navmesh
-let navMesh = null;
-let navMeshQuery = null;
-let navMeshHelper = null;
+// Navmesh - separate for roads and sidewalks
+let roadNavMesh = null;
+let roadNavMeshQuery = null;
+let roadNavMeshHelper = null;
+
+let sidewalkNavMesh = null;
+let sidewalkNavMeshQuery = null;
+let sidewalkNavMeshHelper = null;
+
 let showNavmesh = false;
 let recastInitialized = false;
+
+// Mesh name patterns for filtering
+const ROAD_PATTERNS = ['road', 'street', 'asphalt', 'highway', 'lane', 'track', 'tarmac', 'pavement_road', 'driving'];
+const SIDEWALK_PATTERNS = ['sidewalk', 'walkway', 'footpath', 'pedestrian', 'pavement', 'curb', 'path', 'walkable'];
 
 // Movement state
 const keys = { w: false, a: false, s: false, d: false, shift: false, space: false };
@@ -98,6 +107,27 @@ const loadingStatus = document.createElement('div');
 loadingStatus.style.cssText = 'color: white; font-size: 14px; margin-top: 20px; font-family: sans-serif;';
 loadingScreen.appendChild(loadingStatus);
 
+// Create mesh names debug panel
+const debugPanel = document.createElement('div');
+debugPanel.id = 'debug-panel';
+debugPanel.style.cssText = `
+    position: fixed;
+    top: 60px;
+    right: 20px;
+    max-width: 350px;
+    max-height: 400px;
+    overflow-y: auto;
+    background: rgba(0,0,0,0.85);
+    color: #0f0;
+    font-family: monospace;
+    font-size: 11px;
+    padding: 10px;
+    border-radius: 4px;
+    z-index: 100;
+    display: none;
+`;
+document.body.appendChild(debugPanel);
+
 // Populate track grid
 const trackGrid = document.getElementById('track-grid');
 TRACKS.forEach(track => {
@@ -142,6 +172,12 @@ document.addEventListener('keydown', (e) => {
         return;
     }
     
+    if (key === 'm' && gameState === 'playing') {
+        // Toggle debug mesh names panel
+        debugPanel.style.display = debugPanel.style.display === 'none' ? 'block' : 'none';
+        return;
+    }
+    
     if (gameState !== 'playing') return;
     if (key in keys) keys[key] = true;
     if (key === 'shift') keys.shift = true;
@@ -165,9 +201,8 @@ document.addEventListener('keyup', (e) => {
 
 function toggleNavmeshVisibility() {
     showNavmesh = !showNavmesh;
-    if (navMeshHelper) {
-        navMeshHelper.visible = showNavmesh;
-    }
+    if (roadNavMeshHelper) roadNavMeshHelper.visible = showNavmesh;
+    if (sidewalkNavMeshHelper) sidewalkNavMeshHelper.visible = showNavmesh;
     navmeshToggle.textContent = showNavmesh ? 'Hide Navmesh (N)' : 'Show Navmesh (N)';
     console.log(`🗺️ Navmesh visibility: ${showNavmesh}`);
 }
@@ -180,6 +215,7 @@ function showMenu() {
     loadingScreen.classList.remove('active');
     gameContainer.classList.remove('active');
     navmeshToggle.style.display = 'none';
+    debugPanel.style.display = 'none';
 }
 
 function showLevelSelect() {
@@ -190,6 +226,7 @@ function showLevelSelect() {
     loadingScreen.classList.remove('active');
     gameContainer.classList.remove('active');
     navmeshToggle.style.display = 'none';
+    debugPanel.style.display = 'none';
 }
 
 // Initialize Recast Navigation
@@ -202,35 +239,78 @@ async function ensureRecastInitialized() {
     }
 }
 
-// Generate navmesh from track geometry
-async function generateNavMesh(trackScene) {
-    loadingStatus.textContent = 'Generating navigation mesh...';
+// Check if mesh name matches any pattern
+function matchesPatterns(name, patterns) {
+    const lowerName = name.toLowerCase();
+    return patterns.some(pattern => lowerName.includes(pattern));
+}
+
+// Analyze and categorize meshes from the track
+function analyzeMeshes(trackScene) {
+    const allMeshes = [];
+    const roadMeshes = [];
+    const sidewalkMeshes = [];
+    const otherMeshes = [];
     
-    // Collect meshes from the track
-    const meshes = [];
+    const meshNames = new Set();
+    
     trackScene.traverse((child) => {
         if (child.isMesh && child.geometry) {
-            // Only include meshes that could be walkable (roughly horizontal surfaces)
-            meshes.push(child);
+            const name = child.name || 'unnamed';
+            meshNames.add(name);
+            allMeshes.push({ mesh: child, name });
+            
+            if (matchesPatterns(name, ROAD_PATTERNS)) {
+                roadMeshes.push(child);
+            } else if (matchesPatterns(name, SIDEWALK_PATTERNS)) {
+                sidewalkMeshes.push(child);
+            } else {
+                otherMeshes.push({ mesh: child, name });
+            }
         }
     });
     
+    // Log all mesh names for debugging
+    console.log('📋 All mesh names in track:');
+    const sortedNames = Array.from(meshNames).sort();
+    sortedNames.forEach(name => console.log(`  - ${name}`));
+    
+    // Update debug panel
+    debugPanel.innerHTML = `
+        <strong>MESH NAMES (press M to toggle)</strong><br>
+        <span style="color:#0ff">Road meshes: ${roadMeshes.length}</span><br>
+        <span style="color:#f0f">Sidewalk meshes: ${sidewalkMeshes.length}</span><br>
+        <span style="color:#888">Other: ${otherMeshes.length}</span><br>
+        <hr style="border-color:#333">
+        <strong>All names:</strong><br>
+        ${sortedNames.map(n => {
+            const isRoad = matchesPatterns(n, ROAD_PATTERNS);
+            const isSidewalk = matchesPatterns(n, SIDEWALK_PATTERNS);
+            const color = isRoad ? '#0ff' : (isSidewalk ? '#f0f' : '#666');
+            return `<span style="color:${color}">${n}</span>`;
+        }).join('<br>')}
+    `;
+    
+    return { allMeshes, roadMeshes, sidewalkMeshes, otherMeshes, meshNames: sortedNames };
+}
+
+// Generate navmesh from specific meshes
+async function generateNavMeshFromMeshes(meshes, color, label) {
     if (meshes.length === 0) {
-        console.warn('⚠️ No meshes found for navmesh generation');
-        return null;
+        console.log(`⚠️ No meshes for ${label} navmesh`);
+        return { navMesh: null, query: null, helper: null };
     }
     
-    console.log(`🔍 Found ${meshes.length} meshes for navmesh generation`);
+    console.log(`🔨 Generating ${label} navmesh from ${meshes.length} meshes...`);
     
     try {
-        // Generate navmesh with settings for character walking
         const navMeshConfig = {
-            cs: 0.2,           // Cell size - smaller = more detail
+            cs: 0.3,           // Cell size
             ch: 0.2,           // Cell height
-            walkableSlopeAngle: 45,  // Max slope angle for walking
-            walkableHeight: 2,       // Agent height
-            walkableClimb: 0.5,      // Max step height
-            walkableRadius: 0.5,     // Agent radius
+            walkableSlopeAngle: 35,
+            walkableHeight: 2,
+            walkableClimb: 0.5,
+            walkableRadius: 0.3,
             maxEdgeLen: 12,
             maxSimplificationError: 1.3,
             minRegionArea: 8,
@@ -243,77 +323,103 @@ async function generateNavMesh(trackScene) {
         const result = threeToSoloNavMesh(meshes, navMeshConfig);
         
         if (result.success && result.navMesh) {
-            console.log('✅ Navmesh generated successfully!');
+            console.log(`✅ ${label} navmesh generated!`);
             
-            // Create navmesh query for pathfinding
-            navMeshQuery = new NavMeshQuery(result.navMesh);
-            
-            // Create visual helper
-            if (navMeshHelper) {
-                scene.remove(navMeshHelper);
-            }
-            navMeshHelper = new NavMeshHelper({
+            const query = new NavMeshQuery(result.navMesh);
+            const helper = new NavMeshHelper({
                 navMesh: result.navMesh,
                 navMeshMaterial: new THREE.MeshBasicMaterial({ 
-                    color: 0x00ff00, 
+                    color: color, 
                     transparent: true, 
-                    opacity: 0.3,
+                    opacity: 0.4,
                     side: THREE.DoubleSide,
                     wireframe: false
                 })
             });
-            navMeshHelper.visible = showNavmesh;
-            scene.add(navMeshHelper);
+            helper.visible = showNavmesh;
             
-            return result.navMesh;
-        } else {
-            console.error('❌ Navmesh generation failed');
-            return null;
+            return { navMesh: result.navMesh, query, helper };
         }
     } catch (e) {
-        console.error('❌ Navmesh error:', e);
-        return null;
+        console.error(`❌ ${label} navmesh error:`, e);
     }
+    
+    return { navMesh: null, query: null, helper: null };
 }
 
-// Check if a position is on the navmesh
+// Generate both navmeshes
+async function generateNavMeshes(trackScene) {
+    loadingStatus.textContent = 'Analyzing track geometry...';
+    
+    const { roadMeshes, sidewalkMeshes, otherMeshes } = analyzeMeshes(trackScene);
+    
+    // If no specific road/sidewalk meshes found, use all flat-ish meshes as fallback
+    let meshesForRoads = roadMeshes;
+    let meshesForSidewalks = sidewalkMeshes;
+    
+    if (roadMeshes.length === 0 && sidewalkMeshes.length === 0) {
+        console.log('⚠️ No named road/sidewalk meshes found. Using all meshes as fallback.');
+        // Use all meshes as general walkable area
+        meshesForSidewalks = otherMeshes.map(o => o.mesh);
+    }
+    
+    // Generate road navmesh (cyan - for cars)
+    loadingStatus.textContent = 'Generating road navmesh...';
+    const roadResult = await generateNavMeshFromMeshes(meshesForRoads, 0x00ffff, 'Road');
+    roadNavMesh = roadResult.navMesh;
+    roadNavMeshQuery = roadResult.query;
+    if (roadNavMeshHelper) scene.remove(roadNavMeshHelper);
+    roadNavMeshHelper = roadResult.helper;
+    if (roadNavMeshHelper) scene.add(roadNavMeshHelper);
+    
+    // Generate sidewalk navmesh (magenta - for NPCs/player)
+    loadingStatus.textContent = 'Generating sidewalk navmesh...';
+    const sidewalkResult = await generateNavMeshFromMeshes(meshesForSidewalks, 0xff00ff, 'Sidewalk');
+    sidewalkNavMesh = sidewalkResult.navMesh;
+    sidewalkNavMeshQuery = sidewalkResult.query;
+    if (sidewalkNavMeshHelper) scene.remove(sidewalkNavMeshHelper);
+    sidewalkNavMeshHelper = sidewalkResult.helper;
+    if (sidewalkNavMeshHelper) scene.add(sidewalkNavMeshHelper);
+    
+    const totalNavmeshes = (roadNavMesh ? 1 : 0) + (sidewalkNavMesh ? 1 : 0);
+    console.log(`🗺️ Generated ${totalNavmeshes} navmesh(es)`);
+}
+
+// Check if a position is on the sidewalk navmesh (for player)
 function isPositionOnNavMesh(position) {
-    if (!navMeshQuery) return true; // Allow all movement if no navmesh
+    const query = sidewalkNavMeshQuery || roadNavMeshQuery;
+    if (!query) return true;
     
     try {
-        const result = navMeshQuery.findClosestPoint({ 
+        const result = query.findClosestPoint({ 
             x: position.x, 
             y: position.y, 
             z: position.z 
         });
         
         if (result.success) {
-            // Check if the closest point is within reasonable distance
             const closestPoint = result.point;
             const distance = Math.sqrt(
                 Math.pow(position.x - closestPoint.x, 2) +
                 Math.pow(position.z - closestPoint.z, 2)
             );
-            return distance < 1.0; // Within 1 unit horizontally
+            return distance < 1.5;
         }
-    } catch (e) {
-        // Silent fail - allow movement
-    }
+    } catch (e) {}
     return true;
 }
 
 // Get navmesh height at position
 function getNavMeshHeight(x, z) {
-    if (!navMeshQuery) return groundLevel;
+    const query = sidewalkNavMeshQuery || roadNavMeshQuery;
+    if (!query) return groundLevel;
     
     try {
-        const result = navMeshQuery.findClosestPoint({ x, y: 100, z });
+        const result = query.findClosestPoint({ x, y: 100, z });
         if (result.success) {
             return result.point.y;
         }
-    } catch (e) {
-        // Silent fail
-    }
+    } catch (e) {}
     return groundLevel;
 }
 
@@ -333,17 +439,23 @@ async function loadTrack(trackId) {
     await ensureRecastInitialized();
     loadingFill.style.width = '10%';
     
-    // Remove old track and navmesh
+    // Remove old track and navmeshes
     if (currentTrack) {
         scene.remove(currentTrack);
         currentTrack = null;
     }
-    if (navMeshHelper) {
-        scene.remove(navMeshHelper);
-        navMeshHelper = null;
+    if (roadNavMeshHelper) {
+        scene.remove(roadNavMeshHelper);
+        roadNavMeshHelper = null;
     }
-    navMesh = null;
-    navMeshQuery = null;
+    if (sidewalkNavMeshHelper) {
+        scene.remove(sidewalkNavMeshHelper);
+        sidewalkNavMeshHelper = null;
+    }
+    roadNavMesh = null;
+    roadNavMeshQuery = null;
+    sidewalkNavMesh = null;
+    sidewalkNavMeshQuery = null;
     
     // Load player if not loaded
     if (!player) {
@@ -379,9 +491,8 @@ async function loadTrack(trackId) {
         console.log(`🏎️ Loaded: ${trackId}`);
         loadingFill.style.width = '70%';
         
-        // Generate navmesh
-        loadingStatus.textContent = 'Generating navmesh...';
-        navMesh = await generateNavMesh(currentTrack);
+        // Generate navmeshes (road + sidewalk)
+        await generateNavMeshes(currentTrack);
         loadingFill.style.width = '90%';
         
     } catch (e) {
@@ -390,11 +501,11 @@ async function loadTrack(trackId) {
         return;
     }
     
-    // Reset player position - try to find a good starting point
+    // Reset player position
     let startY = 10;
-    if (navMeshQuery) {
-        const startHeight = getNavMeshHeight(0, 0);
-        startY = startHeight + 2;
+    const navHeight = getNavMeshHeight(0, 0);
+    if (navHeight > groundLevel) {
+        startY = navHeight + 2;
     }
     player.position.set(0, startY, 0);
     velocityY = 0;
@@ -513,7 +624,7 @@ function updatePlayer(delta) {
     velocityY += gravity * delta;
     player.position.y += velocityY * delta;
     
-    // Get ground height from navmesh or use default
+    // Get ground height from navmesh
     const navHeight = getNavMeshHeight(player.position.x, player.position.z);
     const currentGround = navHeight || groundLevel;
     
@@ -539,7 +650,6 @@ function updatePlayer(delta) {
         const newX = player.position.x + Math.sin(player.rotation.y) * speed * delta * moveDir;
         const newZ = player.position.z + Math.cos(player.rotation.y) * speed * delta * moveDir;
         
-        // Check if new position is on navmesh
         if (isPositionOnNavMesh({ x: newX, y: player.position.y, z: newZ })) {
             player.position.x = newX;
             player.position.z = newZ;
