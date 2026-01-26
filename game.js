@@ -51,8 +51,8 @@ function initScene() {
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.maxPolarAngle = Math.PI / 2.1;
-    controls.minDistance = 20;
-    controls.maxDistance = 300;
+    controls.minDistance = 1;
+    controls.maxDistance = 500;
     
     // Lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
