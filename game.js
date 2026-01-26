@@ -119,7 +119,7 @@ async function loadModels() {
         });
         player = playerGltf.scene;
         player.scale.setScalar(1);
-        player.position.set(0, 500, 0);
+        player.position.set(0, 100, 0);
         player.castShadow = true;
         scene.add(player);
         
@@ -172,7 +172,7 @@ async function loadModels() {
             if (p.total > 0) loadingFill.style.width = 50 + (p.loaded / p.total) * 50 + '%';
         });
         const city = cityGltf.scene;
-        city.scale.setScalar(100000);
+        city.scale.setScalar(20000);
         city.position.set(0, 0, 0);
         city.receiveShadow = true;
         scene.add(city);
