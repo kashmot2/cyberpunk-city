@@ -22,9 +22,19 @@ let isGrounded = false;
 const cameraOffset = new THREE.Vector3(0, 2, 5);
 const cameraLookOffset = new THREE.Vector3(0, 1, 0);
 
-// Interaction system
-let nearbyInteractable = null;
-const interactionRange = 3;
+// Burnout track layout - arranged in a grid
+const TRACK_LAYOUT = [
+    { name: 'central-route-crash', position: [0, 0, 0] },
+    { name: 'central-route-long', position: [200, 0, 0] },
+    { name: 'motor-city-long', position: [400, 0, 0] },
+    { name: 'eastern-bay-long', position: [0, 0, 200] },
+    { name: 'eastern-bay-upper', position: [200, 0, 200] },
+    { name: 'eternal-city-long', position: [400, 0, 200] },
+    { name: 'eternal-city-short', position: [0, 0, 400] },
+    { name: 'angel-valley', position: [200, 0, 400] },
+    { name: 'white-mountain', position: [400, 0, 400] },
+    { name: 'sunshine-keys', position: [200, 0, 600] },
+];
 
 // DOM Elements
 const startScreen = document.getElementById('start-screen');
@@ -53,6 +63,16 @@ interactPrompt.style.cssText = `
 `;
 document.body.appendChild(interactPrompt);
 
+// Loading status
+const loadingStatus = document.createElement('div');
+loadingStatus.id = 'loading-status';
+loadingStatus.style.cssText = `
+    color: white;
+    font-size: 14px;
+    margin-top: 20px;
+`;
+document.querySelector('.loading-bar')?.parentNode?.appendChild(loadingStatus);
+
 // Start button
 playBtn.addEventListener('click', startGame);
 
@@ -62,12 +82,6 @@ document.addEventListener('keydown', (e) => {
     if (key in keys) keys[key] = true;
     if (key === 'shift') keys.shift = true;
     if (key === ' ') keys.space = true;
-    if (key === 'e') keys.e = true;
-    
-    // Handle interaction
-    if (key === 'e' && nearbyInteractable) {
-        handleInteraction(nearbyInteractable);
-    }
     
     // Jump
     if (key === ' ' && isGrounded) {
@@ -82,7 +96,6 @@ document.addEventListener('keyup', (e) => {
     if (key in keys) keys[key] = false;
     if (key === 'shift') keys.shift = false;
     if (key === ' ') keys.space = false;
-    if (key === 'e') keys.e = false;
 });
 
 async function startGame() {
@@ -100,8 +113,10 @@ async function startGame() {
 
 function initScene() {
     scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87CEEB); // Sky blue
+    scene.fog = new THREE.Fog(0x87CEEB, 100, 800);
     
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 5000);
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
     camera.position.set(0, 5, 10);
     
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -109,26 +124,23 @@ function initScene() {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
+    renderer.toneMappingExposure = 1.2;
     gameContainer.appendChild(renderer.domElement);
     
     // Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
     scene.add(ambientLight);
     
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-    directionalLight.position.set(50, 100, 50);
-    directionalLight.castShadow = true;
-    scene.add(directionalLight);
+    const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    sunLight.position.set(100, 150, 50);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    scene.add(sunLight);
     
-    // Neon accent lights
-    const pinkLight = new THREE.PointLight(0xff00ff, 1, 100);
-    pinkLight.position.set(-30, 20, 0);
-    scene.add(pinkLight);
-    
-    const cyanLight = new THREE.PointLight(0x00ffff, 1, 100);
-    cyanLight.position.set(30, 20, 0);
-    scene.add(cyanLight);
+    // Hemisphere light for nicer outdoor lighting
+    const hemiLight = new THREE.HemisphereLight(0x87CEEB, 0x444444, 0.5);
+    scene.add(hemiLight);
     
     window.addEventListener('resize', onWindowResize);
 }
@@ -140,114 +152,98 @@ function loadGLTF(path, onProgress) {
     });
 }
 
+function updateLoadingStatus(text) {
+    if (loadingStatus) loadingStatus.textContent = text;
+}
+
 async function loadModels() {
-    // Load skybox
+    const totalTracks = TRACK_LAYOUT.length;
+    let loadedTracks = 0;
+    
+    // Load skybox first
     try {
-        const skyboxGltf = await loadGLTF('models/skybox-futuristic-city.glb', (p) => {
-            if (p.total > 0) loadingFill.style.width = (p.loaded / p.total) * 20 + '%';
-        });
+        updateLoadingStatus('Loading skybox...');
+        const skyboxGltf = await loadGLTF('models/skybox-futuristic-city.glb');
         const skybox = skyboxGltf.scene;
         skybox.scale.setScalar(500);
         scene.add(skybox);
+        scene.background = null;
+        scene.fog = null;
         console.log('🌆 Skybox loaded!');
     } catch (e) {
-        scene.background = new THREE.Color(0x0a0a15);
+        console.log('Using sky color background');
     }
     
-    loadingFill.style.width = '20%';
+    loadingFill.style.width = '10%';
     
-    // Load player with animations
+    // Load player
     try {
-        const playerGltf = await loadGLTF('models/robot.glb', (p) => {
-            if (p.total > 0) loadingFill.style.width = 20 + (p.loaded / p.total) * 30 + '%';
-        });
+        updateLoadingStatus('Loading character...');
+        const playerGltf = await loadGLTF('models/robot.glb');
         player = playerGltf.scene;
-        player.scale.setScalar(1);  // Human scale (1 unit = 1 meter)
-        player.position.set(0, 20, 0);  // Start above ground
+        player.scale.setScalar(0.01);  // Adjusted for Burnout scale
+        player.position.set(0, 5, 0);
         player.castShadow = true;
         scene.add(player);
         
         // Setup animations
         if (playerGltf.animations.length > 0) {
             mixer = new THREE.AnimationMixer(player);
-            
             playerGltf.animations.forEach(clip => {
                 const name = clip.name.toLowerCase();
-                console.log('Animation found:', clip.name);
-                
-                // Map animation names
-                if (name.includes('idle')) {
-                    animations.idle = mixer.clipAction(clip);
-                } else if (name.includes('walk')) {
-                    animations.walk = mixer.clipAction(clip);
-                } else if (name.includes('run')) {
-                    animations.run = mixer.clipAction(clip);
-                } else if (name.includes('jump')) {
+                if (name.includes('idle')) animations.idle = mixer.clipAction(clip);
+                else if (name.includes('walk')) animations.walk = mixer.clipAction(clip);
+                else if (name.includes('run')) animations.run = mixer.clipAction(clip);
+                else if (name.includes('jump')) {
                     animations.jump = mixer.clipAction(clip);
                     animations.jump.setLoop(THREE.LoopOnce);
-                    animations.jump.clampWhenFinished = true;
-                } else if (name.includes('sit')) {
-                    animations.sit = mixer.clipAction(clip);
-                    animations.sit.setLoop(THREE.LoopOnce);
-                    animations.sit.clampWhenFinished = true;
                 }
             });
             
-            // Fallback assignments
+            // Fallback
             const anims = playerGltf.animations;
             if (!animations.idle && anims[0]) animations.idle = mixer.clipAction(anims[0]);
-            if (!animations.walk && anims[1]) animations.walk = mixer.clipAction(anims[1]);
-            if (!animations.run && anims[2]) animations.run = mixer.clipAction(anims[2]);
-            if (!animations.jump && anims[3]) animations.jump = mixer.clipAction(anims[3]);
+            if (!animations.run && anims[0]) animations.run = mixer.clipAction(anims[0]);
             
-            // Start with idle
             if (animations.idle) {
                 currentAction = animations.idle;
                 animations.idle.play();
             }
         }
-        
-        console.log('🧑 Player loaded with animations:', Object.keys(animations));
+        console.log('🤖 Robot loaded!');
     } catch (e) {
-        console.error('Player not found:', e.message);
-        // Fallback capsule
-        const geo = new THREE.CapsuleGeometry(0.5, 1.5, 4, 8);
+        console.error('Player error:', e);
+        const geo = new THREE.CapsuleGeometry(0.3, 1, 4, 8);
         const mat = new THREE.MeshStandardMaterial({ color: 0xff00ff });
         player = new THREE.Mesh(geo, mat);
-        player.position.set(0, 50, 0);
+        player.position.set(0, 5, 0);
         scene.add(player);
     }
     
-    loadingFill.style.width = '50%';
+    loadingFill.style.width = '20%';
     
-    // Load city - scaled up for proper chair height
-    try {
-        const cityGltf = await loadGLTF('models/lowpoly-city.glb', (p) => {
-            if (p.total > 0) loadingFill.style.width = 50 + (p.loaded / p.total) * 50 + '%';
-        });
-        const city = cityGltf.scene;
-        city.scale.setScalar(1);  // Game-ready should be 1:1 scale
-        city.position.set(0, 0, 0);
-        city.receiveShadow = true;
+    // Load all Burnout tracks
+    for (let i = 0; i < TRACK_LAYOUT.length; i++) {
+        const track = TRACK_LAYOUT[i];
+        try {
+            updateLoadingStatus(`Loading ${track.name}... (${i + 1}/${totalTracks})`);
+            const trackGltf = await loadGLTF(`models/burnout/${track.name}.glb`);
+            const trackModel = trackGltf.scene;
+            trackModel.scale.setScalar(1);
+            trackModel.position.set(...track.position);
+            trackModel.receiveShadow = true;
+            scene.add(trackModel);
+            loadedTracks++;
+            console.log(`🏎️ Loaded: ${track.name}`);
+        } catch (e) {
+            console.log(`Failed to load ${track.name}:`, e.message);
+        }
         
-        // Tag interactable objects (chairs, benches, etc)
-        city.traverse((child) => {
-            if (child.isMesh) {
-                const name = child.name.toLowerCase();
-                if (name.includes('chair') || name.includes('bench') || name.includes('seat')) {
-                    child.userData.interactable = true;
-                    child.userData.type = 'seat';
-                    child.userData.prompt = 'Press E to sit';
-                }
-            }
-        });
-        
-        scene.add(city);
-        console.log('🌃 City loaded!');
-    } catch (e) {
-        console.log('City not found:', e.message);
+        const progress = 20 + (loadedTracks / totalTracks) * 80;
+        loadingFill.style.width = progress + '%';
     }
     
+    updateLoadingStatus(`Loaded ${loadedTracks} tracks!`);
     loadingFill.style.width = '100%';
 }
 
@@ -255,41 +251,9 @@ function switchAnimation(name, fadeTime = 0.2) {
     const newAction = animations[name];
     if (!newAction || currentAction === newAction) return;
     
-    if (currentAction) {
-        currentAction.fadeOut(fadeTime);
-    }
-    
+    if (currentAction) currentAction.fadeOut(fadeTime);
     newAction.reset().fadeIn(fadeTime).play();
     currentAction = newAction;
-}
-
-function handleInteraction(object) {
-    if (object.userData.type === 'seat') {
-        // Sit animation
-        if (animations.sit) {
-            switchAnimation('sit');
-        }
-        console.log('Sitting on:', object.name);
-    }
-}
-
-function checkInteractables() {
-    if (!player) return;
-    
-    nearbyInteractable = null;
-    interactPrompt.style.display = 'none';
-    
-    // Simple distance check for nearby interactables
-    scene.traverse((child) => {
-        if (child.userData.interactable) {
-            const distance = player.position.distanceTo(child.position);
-            if (distance < interactionRange) {
-                nearbyInteractable = child;
-                interactPrompt.textContent = child.userData.prompt || 'Press E to interact';
-                interactPrompt.style.display = 'block';
-            }
-        }
-    });
 }
 
 function updatePlayer(delta) {
@@ -299,7 +263,7 @@ function updatePlayer(delta) {
     const isRunning = keys.shift && isMoving;
     const speed = isRunning ? runSpeed : moveSpeed;
     
-    // Apply gravity
+    // Gravity
     velocityY += gravity * delta;
     player.position.y += velocityY * delta;
     
@@ -307,29 +271,19 @@ function updatePlayer(delta) {
     if (player.position.y <= groundLevel) {
         player.position.y = groundLevel;
         velocityY = 0;
-        if (!isGrounded) {
-            isGrounded = true;
-        }
+        isGrounded = true;
     }
     
-    // Animation state machine
+    // Animations
     if (isGrounded) {
-        if (isRunning) {
-            switchAnimation('run');
-        } else if (isMoving) {
-            switchAnimation('walk');
-        } else {
-            switchAnimation('idle');
-        }
+        if (isRunning) switchAnimation('run');
+        else if (isMoving) switchAnimation('walk');
+        else switchAnimation('idle');
     }
     
     // Rotation
-    if (keys.a) {
-        player.rotation.y += rotateSpeed * delta;
-    }
-    if (keys.d) {
-        player.rotation.y -= rotateSpeed * delta;
-    }
+    if (keys.a) player.rotation.y += rotateSpeed * delta;
+    if (keys.d) player.rotation.y -= rotateSpeed * delta;
     
     // Movement
     if (keys.w) {
@@ -337,25 +291,20 @@ function updatePlayer(delta) {
         player.position.z -= Math.cos(player.rotation.y) * speed * delta;
     }
     if (keys.s) {
-        player.position.x += Math.sin(player.rotation.y) * speed * delta * 0.5;  // Slower backwards
+        player.position.x += Math.sin(player.rotation.y) * speed * delta * 0.5;
         player.position.z += Math.cos(player.rotation.y) * speed * delta * 0.5;
     }
-    
-    // Check for nearby interactables
-    checkInteractables();
 }
 
 function updateCamera() {
     if (!player) return;
     
-    // Calculate camera position behind player
     const offset = cameraOffset.clone();
     offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), player.rotation.y);
     
     const targetPos = player.position.clone().add(offset);
     camera.position.lerp(targetPos, 0.1);
     
-    // Look at player
     const lookAt = player.position.clone().add(cameraLookOffset);
     camera.lookAt(lookAt);
 }
@@ -368,7 +317,6 @@ function onWindowResize() {
 
 function animate() {
     requestAnimationFrame(animate);
-    
     const delta = clock.getDelta();
     
     if (mixer) mixer.update(delta);
