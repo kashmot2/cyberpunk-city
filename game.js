@@ -14,7 +14,7 @@ const rotateSpeed = 3;
 // Physics
 let velocityY = 0;
 const gravity = -40;
-const groundLevel = 0;
+const groundLevel = 5;
 const jumpForce = 15;
 let isGrounded = false;
 
@@ -163,7 +163,7 @@ async function loadModels() {
         });
         player = playerGltf.scene;
         player.scale.setScalar(0.5);  // Human-sized
-        player.position.set(0, 100, 0);  // Start in air
+        player.position.set(0, 200, 0);  // Start in air
         player.castShadow = true;
         scene.add(player);
         
@@ -226,7 +226,7 @@ async function loadModels() {
             if (p.total > 0) loadingFill.style.width = 50 + (p.loaded / p.total) * 50 + '%';
         });
         const city = cityGltf.scene;
-        city.scale.setScalar(50);  // Bigger city for proper scale
+        city.scale.setScalar(500);  // Much bigger city
         city.position.set(0, 0, 0);
         city.receiveShadow = true;
         
