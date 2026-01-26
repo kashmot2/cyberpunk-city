@@ -9,6 +9,11 @@ const moveSpeed = 10;
 const runSpeed = 25;
 const rotateSpeed = 3;
 
+// Physics
+let velocityY = 0;
+const gravity = -30;
+const groundLevel = 0;
+
 // Camera settings - GTA style close third-person
 const cameraOffset = new THREE.Vector3(0, 2, 5);
 const cameraLookOffset = new THREE.Vector3(0, 1, 0);
@@ -114,7 +119,7 @@ async function loadModels() {
         });
         player = playerGltf.scene;
         player.scale.setScalar(1);
-        player.position.set(0, 2, 20);
+        player.position.set(0, 500, 0);
         player.castShadow = true;
         scene.add(player);
         
@@ -194,6 +199,16 @@ function updatePlayer(delta) {
     
     const isMoving = keys.w || keys.a || keys.s || keys.d;
     const speed = keys.shift ? runSpeed : moveSpeed;
+    
+    // Apply gravity
+    velocityY += gravity * delta;
+    player.position.y += velocityY * delta;
+    
+    // Ground collision
+    if (player.position.y <= groundLevel) {
+        player.position.y = groundLevel;
+        velocityY = 0;
+    }
     
     // Switch animations
     if (isMoving && runAction) {
