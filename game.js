@@ -7,8 +7,8 @@ let clock = new THREE.Clock();
 
 // Movement state
 const keys = { w: false, a: false, s: false, d: false, shift: false, space: false, e: false };
-const moveSpeed = 8;
-const runSpeed = 16;
+const moveSpeed = 3;
+const runSpeed = 7;
 const rotateSpeed = 3;
 
 // Physics
@@ -19,8 +19,8 @@ const jumpForce = 15;
 let isGrounded = false;
 
 // Camera settings - GTA style
-const cameraOffset = new THREE.Vector3(0, 3, 6);
-const cameraLookOffset = new THREE.Vector3(0, 1.5, 0);
+const cameraOffset = new THREE.Vector3(0, 1, 2.5);
+const cameraLookOffset = new THREE.Vector3(0, 0.5, 0);
 
 // Interaction system
 let nearbyInteractable = null;
@@ -162,8 +162,8 @@ async function loadModels() {
             if (p.total > 0) loadingFill.style.width = 20 + (p.loaded / p.total) * 30 + '%';
         });
         player = playerGltf.scene;
-        player.scale.setScalar(2);  // Adjusted scale
-        player.position.set(0, 50, 0);  // Start in air
+        player.scale.setScalar(0.5);  // Human-sized
+        player.position.set(0, 100, 0);  // Start in air
         player.castShadow = true;
         scene.add(player);
         
@@ -226,7 +226,7 @@ async function loadModels() {
             if (p.total > 0) loadingFill.style.width = 50 + (p.loaded / p.total) * 50 + '%';
         });
         const city = cityGltf.scene;
-        city.scale.setScalar(0.5);  // Smaller city = bigger relative character
+        city.scale.setScalar(50);  // Bigger city for proper scale
         city.position.set(0, 0, 0);
         city.receiveShadow = true;
         
