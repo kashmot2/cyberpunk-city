@@ -9,9 +9,9 @@ const moveSpeed = 15;
 const runSpeed = 30;
 const rotateSpeed = 3;
 
-// Camera settings
-const cameraOffset = new THREE.Vector3(0, 8, 15);
-const cameraLookOffset = new THREE.Vector3(0, 3, 0);
+// Camera settings - GTA style close third-person
+const cameraOffset = new THREE.Vector3(0, 3, 6);
+const cameraLookOffset = new THREE.Vector3(0, 2, 0);
 
 // DOM Elements
 const startScreen = document.getElementById('start-screen');
@@ -53,7 +53,7 @@ function initScene() {
     scene = new THREE.Scene();
     
     camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
-    camera.position.set(0, 10, 20);
+    camera.position.set(0, 5, 10);
     
     renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -114,7 +114,7 @@ async function loadModels() {
         });
         player = playerGltf.scene;
         player.scale.setScalar(2);
-        player.position.set(0, 0, 0);
+        player.position.set(0, 2, 20);
         player.castShadow = true;
         scene.add(player);
         
@@ -229,7 +229,7 @@ function updateCamera() {
     offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), player.rotation.y);
     
     const targetPos = player.position.clone().add(offset);
-    camera.position.lerp(targetPos, 0.1);
+    camera.position.lerp(targetPos, 0.15);
     
     // Look at player
     const lookAt = player.position.clone().add(cameraLookOffset);
