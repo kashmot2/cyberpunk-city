@@ -12,11 +12,11 @@ const rotateSpeed = 3;
 // Physics
 let velocityY = 0;
 const gravity = -80;
-const groundLevel = 50;
+const groundLevel = 100;
 
 // Camera settings - GTA style close third-person
-const cameraOffset = new THREE.Vector3(0, 10, 20);
-const cameraLookOffset = new THREE.Vector3(0, 5, 0);
+const cameraOffset = new THREE.Vector3(0, 20, 40);
+const cameraLookOffset = new THREE.Vector3(0, 8, 0);
 
 // DOM Elements
 const startScreen = document.getElementById('start-screen');
