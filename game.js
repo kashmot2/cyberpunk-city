@@ -167,7 +167,7 @@ async function loadModels() {
             if (p.total > 0) loadingFill.style.width = 50 + (p.loaded / p.total) * 50 + '%';
         });
         const city = cityGltf.scene;
-        city.scale.setScalar(0.5);
+        city.scale.setScalar(50);
         city.position.set(0, 0, 0);
         city.receiveShadow = true;
         scene.add(city);
