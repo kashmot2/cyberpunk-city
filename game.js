@@ -1,3 +1,10 @@
+// ES Module imports
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { init as initRecast, NavMeshQuery, NavMesh } from '@recast-navigation/core';
+import { threeToSoloNavMesh, NavMeshHelper } from '@recast-navigation/three';
+
 // Scene setup
 let scene, camera, renderer;
 let player, mixer;
@@ -5,6 +12,13 @@ let animations = {};
 let currentAction = null;
 let clock = new THREE.Clock();
 let currentTrack = null;
+
+// Navmesh
+let navMesh = null;
+let navMeshQuery = null;
+let navMeshHelper = null;
+let showNavmesh = false;
+let recastInitialized = false;
 
 // Movement state
 const keys = { w: false, a: false, s: false, d: false, shift: false, space: false };
@@ -15,7 +29,7 @@ const rotateSpeed = 3;
 // Physics
 let velocityY = 0;
 const gravity = -40;
-const groundLevel = 0;
+let groundLevel = 0;
 const jumpForce = 15;
 let isGrounded = false;
 
@@ -46,6 +60,7 @@ const loadingScreen = document.getElementById('loading-screen');
 const loadingFill = document.getElementById('loading-fill');
 const gameContainer = document.getElementById('game-container');
 const playBtn = document.getElementById('play-btn');
+const navmeshToggle = document.getElementById('navmesh-toggle');
 
 // Create level select screen
 const levelSelectScreen = document.createElement('div');
@@ -116,11 +131,18 @@ TRACKS.forEach(track => {
 // Event listeners
 playBtn.addEventListener('click', showLevelSelect);
 document.getElementById('back-btn').addEventListener('click', showMenu);
+navmeshToggle.addEventListener('click', toggleNavmeshVisibility);
 
 // Keyboard controls
 document.addEventListener('keydown', (e) => {
-    if (gameState !== 'playing') return;
     const key = e.key.toLowerCase();
+    
+    if (key === 'n' && gameState === 'playing') {
+        toggleNavmeshVisibility();
+        return;
+    }
+    
+    if (gameState !== 'playing') return;
     if (key in keys) keys[key] = true;
     if (key === 'shift') keys.shift = true;
     if (key === ' ') {
@@ -141,6 +163,15 @@ document.addEventListener('keyup', (e) => {
     if (key === ' ') keys.space = false;
 });
 
+function toggleNavmeshVisibility() {
+    showNavmesh = !showNavmesh;
+    if (navMeshHelper) {
+        navMeshHelper.visible = showNavmesh;
+    }
+    navmeshToggle.textContent = showNavmesh ? 'Hide Navmesh (N)' : 'Show Navmesh (N)';
+    console.log(`🗺️ Navmesh visibility: ${showNavmesh}`);
+}
+
 function showMenu() {
     gameState = 'menu';
     startScreen.style.display = 'flex';
@@ -148,6 +179,7 @@ function showMenu() {
     levelSelectScreen.style.display = 'none';
     loadingScreen.classList.remove('active');
     gameContainer.classList.remove('active');
+    navmeshToggle.style.display = 'none';
 }
 
 function showLevelSelect() {
@@ -157,6 +189,132 @@ function showLevelSelect() {
     levelSelectScreen.style.display = 'flex';
     loadingScreen.classList.remove('active');
     gameContainer.classList.remove('active');
+    navmeshToggle.style.display = 'none';
+}
+
+// Initialize Recast Navigation
+async function ensureRecastInitialized() {
+    if (!recastInitialized) {
+        loadingStatus.textContent = 'Initializing navigation system...';
+        await initRecast();
+        recastInitialized = true;
+        console.log('✅ Recast navigation initialized');
+    }
+}
+
+// Generate navmesh from track geometry
+async function generateNavMesh(trackScene) {
+    loadingStatus.textContent = 'Generating navigation mesh...';
+    
+    // Collect meshes from the track
+    const meshes = [];
+    trackScene.traverse((child) => {
+        if (child.isMesh && child.geometry) {
+            // Only include meshes that could be walkable (roughly horizontal surfaces)
+            meshes.push(child);
+        }
+    });
+    
+    if (meshes.length === 0) {
+        console.warn('⚠️ No meshes found for navmesh generation');
+        return null;
+    }
+    
+    console.log(`🔍 Found ${meshes.length} meshes for navmesh generation`);
+    
+    try {
+        // Generate navmesh with settings for character walking
+        const navMeshConfig = {
+            cs: 0.2,           // Cell size - smaller = more detail
+            ch: 0.2,           // Cell height
+            walkableSlopeAngle: 45,  // Max slope angle for walking
+            walkableHeight: 2,       // Agent height
+            walkableClimb: 0.5,      // Max step height
+            walkableRadius: 0.5,     // Agent radius
+            maxEdgeLen: 12,
+            maxSimplificationError: 1.3,
+            minRegionArea: 8,
+            mergeRegionArea: 20,
+            maxVertsPerPoly: 6,
+            detailSampleDist: 6,
+            detailSampleMaxError: 1,
+        };
+        
+        const result = threeToSoloNavMesh(meshes, navMeshConfig);
+        
+        if (result.success && result.navMesh) {
+            console.log('✅ Navmesh generated successfully!');
+            
+            // Create navmesh query for pathfinding
+            navMeshQuery = new NavMeshQuery(result.navMesh);
+            
+            // Create visual helper
+            if (navMeshHelper) {
+                scene.remove(navMeshHelper);
+            }
+            navMeshHelper = new NavMeshHelper({
+                navMesh: result.navMesh,
+                navMeshMaterial: new THREE.MeshBasicMaterial({ 
+                    color: 0x00ff00, 
+                    transparent: true, 
+                    opacity: 0.3,
+                    side: THREE.DoubleSide,
+                    wireframe: false
+                })
+            });
+            navMeshHelper.visible = showNavmesh;
+            scene.add(navMeshHelper);
+            
+            return result.navMesh;
+        } else {
+            console.error('❌ Navmesh generation failed');
+            return null;
+        }
+    } catch (e) {
+        console.error('❌ Navmesh error:', e);
+        return null;
+    }
+}
+
+// Check if a position is on the navmesh
+function isPositionOnNavMesh(position) {
+    if (!navMeshQuery) return true; // Allow all movement if no navmesh
+    
+    try {
+        const result = navMeshQuery.findClosestPoint({ 
+            x: position.x, 
+            y: position.y, 
+            z: position.z 
+        });
+        
+        if (result.success) {
+            // Check if the closest point is within reasonable distance
+            const closestPoint = result.point;
+            const distance = Math.sqrt(
+                Math.pow(position.x - closestPoint.x, 2) +
+                Math.pow(position.z - closestPoint.z, 2)
+            );
+            return distance < 1.0; // Within 1 unit horizontally
+        }
+    } catch (e) {
+        // Silent fail - allow movement
+    }
+    return true;
+}
+
+// Get navmesh height at position
+function getNavMeshHeight(x, z) {
+    if (!navMeshQuery) return groundLevel;
+    
+    try {
+        const result = navMeshQuery.findClosestPoint({ x, y: 100, z });
+        if (result.success) {
+            return result.point.y;
+        }
+    } catch (e) {
+        // Silent fail
+    }
+    return groundLevel;
 }
 
 async function loadTrack(trackId) {
@@ -171,31 +329,46 @@ async function loadTrack(trackId) {
         initScene();
     }
     
-    // Remove old track
+    // Ensure Recast is ready
+    await ensureRecastInitialized();
+    loadingFill.style.width = '10%';
+    
+    // Remove old track and navmesh
     if (currentTrack) {
         scene.remove(currentTrack);
         currentTrack = null;
     }
+    if (navMeshHelper) {
+        scene.remove(navMeshHelper);
+        navMeshHelper = null;
+    }
+    navMesh = null;
+    navMeshQuery = null;
     
     // Load player if not loaded
     if (!player) {
         await loadPlayer();
     }
-    
-    // Reset player position
-    player.position.set(0, 10, 0);
-    velocityY = 0;
+    loadingFill.style.width = '20%';
     
     // Load track
     loadingStatus.textContent = `Loading ${trackId}...`;
     loadingFill.style.width = '30%';
     
     try {
-        const trackGltf = await loadGLTF(`models/burnout/${trackId}.glb`, (p) => {
-            if (p.total > 0) {
-                const progress = 30 + (p.loaded / p.total) * 70;
-                loadingFill.style.width = progress + '%';
-            }
+        const loader = new GLTFLoader();
+        const trackGltf = await new Promise((resolve, reject) => {
+            loader.load(
+                `models/burnout/${trackId}.glb`,
+                resolve,
+                (p) => {
+                    if (p.total > 0) {
+                        const progress = 30 + (p.loaded / p.total) * 40;
+                        loadingFill.style.width = progress + '%';
+                    }
+                },
+                reject
+            );
         });
         
         currentTrack = trackGltf.scene;
@@ -204,11 +377,27 @@ async function loadTrack(trackId) {
         scene.add(currentTrack);
         
         console.log(`🏎️ Loaded: ${trackId}`);
+        loadingFill.style.width = '70%';
+        
+        // Generate navmesh
+        loadingStatus.textContent = 'Generating navmesh...';
+        navMesh = await generateNavMesh(currentTrack);
+        loadingFill.style.width = '90%';
+        
     } catch (e) {
         console.error('Failed to load track:', e);
         loadingStatus.textContent = 'Error loading track!';
         return;
     }
+    
+    // Reset player position - try to find a good starting point
+    let startY = 10;
+    if (navMeshQuery) {
+        const startHeight = getNavMeshHeight(0, 0);
+        startY = startHeight + 2;
+    }
+    player.position.set(0, startY, 0);
+    velocityY = 0;
     
     loadingFill.style.width = '100%';
     loadingStatus.textContent = 'Ready!';
@@ -218,6 +407,7 @@ async function loadTrack(trackId) {
         gameState = 'playing';
         loadingScreen.classList.remove('active');
         gameContainer.classList.add('active');
+        navmeshToggle.style.display = 'block';
         if (!renderer) return;
         animate();
     }, 500);
@@ -254,19 +444,16 @@ function initScene() {
     window.addEventListener('resize', onWindowResize);
 }
 
-function loadGLTF(path, onProgress) {
-    return new Promise((resolve, reject) => {
-        const loader = new THREE.GLTFLoader();
-        loader.load(path, resolve, onProgress, reject);
-    });
-}
-
 async function loadPlayer() {
     loadingStatus.textContent = 'Loading character...';
     loadingFill.style.width = '15%';
     
     try {
-        const playerGltf = await loadGLTF('models/robot.glb');
+        const loader = new GLTFLoader();
+        const playerGltf = await new Promise((resolve, reject) => {
+            loader.load('models/robot.glb', resolve, undefined, reject);
+        });
+        
         player = playerGltf.scene;
         player.scale.setScalar(0.01);
         player.position.set(0, 10, 0);
@@ -322,11 +509,16 @@ function updatePlayer(delta) {
     const isRunning = keys.shift && isMoving;
     const speed = isRunning ? runSpeed : moveSpeed;
     
+    // Apply gravity
     velocityY += gravity * delta;
     player.position.y += velocityY * delta;
     
-    if (player.position.y <= groundLevel) {
-        player.position.y = groundLevel;
+    // Get ground height from navmesh or use default
+    const navHeight = getNavMeshHeight(player.position.x, player.position.z);
+    const currentGround = navHeight || groundLevel;
+    
+    if (player.position.y <= currentGround) {
+        player.position.y = currentGround;
         velocityY = 0;
         isGrounded = true;
     }
@@ -337,16 +529,21 @@ function updatePlayer(delta) {
         else switchAnimation('idle');
     }
     
+    // Rotation
     if (keys.a) player.rotation.y += rotateSpeed * delta;
     if (keys.d) player.rotation.y -= rotateSpeed * delta;
     
-    if (keys.w) {
-        player.position.x -= Math.sin(player.rotation.y) * speed * delta;
-        player.position.z -= Math.cos(player.rotation.y) * speed * delta;
-    }
-    if (keys.s) {
-        player.position.x += Math.sin(player.rotation.y) * speed * delta * 0.5;
-        player.position.z += Math.cos(player.rotation.y) * speed * delta * 0.5;
+    // Movement with navmesh constraint
+    if (keys.w || keys.s) {
+        const moveDir = keys.w ? -1 : 0.5;
+        const newX = player.position.x + Math.sin(player.rotation.y) * speed * delta * moveDir;
+        const newZ = player.position.z + Math.cos(player.rotation.y) * speed * delta * moveDir;
+        
+        // Check if new position is on navmesh
+        if (isPositionOnNavMesh({ x: newX, y: player.position.y, z: newZ })) {
+            player.position.x = newX;
+            player.position.z = newZ;
+        }
     }
 }
 
