@@ -7,20 +7,20 @@ let clock = new THREE.Clock();
 
 // Movement state
 const keys = { w: false, a: false, s: false, d: false, shift: false, space: false, e: false };
-const moveSpeed = 2;
-const runSpeed = 5;
+const moveSpeed = 5;
+const runSpeed = 10;
 const rotateSpeed = 3;
 
 // Physics
 let velocityY = 0;
 const gravity = -40;
-const groundLevel = 5;
+const groundLevel = 0;
 const jumpForce = 15;
 let isGrounded = false;
 
 // Camera settings - GTA style
-const cameraOffset = new THREE.Vector3(0, 0.5, 1.2);
-const cameraLookOffset = new THREE.Vector3(0, 0.25, 0);
+const cameraOffset = new THREE.Vector3(0, 2, 5);
+const cameraLookOffset = new THREE.Vector3(0, 1, 0);
 
 // Interaction system
 let nearbyInteractable = null;
@@ -162,8 +162,8 @@ async function loadModels() {
             if (p.total > 0) loadingFill.style.width = 20 + (p.loaded / p.total) * 30 + '%';
         });
         player = playerGltf.scene;
-        player.scale.setScalar(0.02);  // Robot-sized for city
-        player.position.set(0, 200, 0);  // Start in air
+        player.scale.setScalar(1);  // Human scale (1 unit = 1 meter)
+        player.position.set(0, 20, 0);  // Start above ground
         player.castShadow = true;
         scene.add(player);
         
@@ -222,11 +222,11 @@ async function loadModels() {
     
     // Load city - scaled up for proper chair height
     try {
-        const cityGltf = await loadGLTF('models/cyberpunk-city.glb', (p) => {
+        const cityGltf = await loadGLTF('models/lowpoly-city.glb', (p) => {
             if (p.total > 0) loadingFill.style.width = 50 + (p.loaded / p.total) * 50 + '%';
         });
         const city = cityGltf.scene;
-        city.scale.setScalar(500);  // Much bigger city
+        city.scale.setScalar(1);  // Game-ready should be 1:1 scale
         city.position.set(0, 0, 0);
         city.receiveShadow = true;
         
