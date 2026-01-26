@@ -4,9 +4,10 @@ let player, mixer;
 let animations = {};
 let currentAction = null;
 let clock = new THREE.Clock();
+let currentTrack = null;
 
 // Movement state
-const keys = { w: false, a: false, s: false, d: false, shift: false, space: false, e: false };
+const keys = { w: false, a: false, s: false, d: false, shift: false, space: false };
 const moveSpeed = 5;
 const runSpeed = 10;
 const rotateSpeed = 3;
@@ -18,23 +19,26 @@ const groundLevel = 0;
 const jumpForce = 15;
 let isGrounded = false;
 
-// Camera settings - GTA style
+// Camera settings
 const cameraOffset = new THREE.Vector3(0, 2, 5);
 const cameraLookOffset = new THREE.Vector3(0, 1, 0);
 
-// Burnout track layout - arranged in a grid
-const TRACK_LAYOUT = [
-    { name: 'central-route-crash', position: [0, 0, 0] },
-    { name: 'central-route-long', position: [200, 0, 0] },
-    { name: 'motor-city-long', position: [400, 0, 0] },
-    { name: 'eastern-bay-long', position: [0, 0, 200] },
-    { name: 'eastern-bay-upper', position: [200, 0, 200] },
-    { name: 'eternal-city-long', position: [400, 0, 200] },
-    { name: 'eternal-city-short', position: [0, 0, 400] },
-    { name: 'angel-valley', position: [200, 0, 400] },
-    { name: 'white-mountain', position: [400, 0, 400] },
-    { name: 'sunshine-keys', position: [200, 0, 600] },
+// Available tracks
+const TRACKS = [
+    { id: 'central-route-crash', name: 'Central Route - Crash Junction', theme: 'Urban' },
+    { id: 'central-route-long', name: 'Central Route - Long Circuit', theme: 'Urban' },
+    { id: 'motor-city-long', name: 'Motor City - Long Circuit', theme: 'Industrial' },
+    { id: 'eastern-bay-long', name: 'Eastern Bay - Long Circuit', theme: 'Coastal' },
+    { id: 'eastern-bay-upper', name: 'Eastern Bay - Upper Link', theme: 'Coastal' },
+    { id: 'eternal-city-long', name: 'Eternal City - Long Circuit', theme: 'European' },
+    { id: 'eternal-city-short', name: 'Eternal City - Short Circuit', theme: 'European' },
+    { id: 'angel-valley', name: 'Angel Valley', theme: 'Canyon' },
+    { id: 'white-mountain', name: 'White Mountain', theme: 'Alpine' },
+    { id: 'sunshine-keys', name: 'Sunshine Keys', theme: 'Tropical' },
 ];
+
+// Game state
+let gameState = 'menu'; // menu, levelselect, loading, playing
 
 // DOM Elements
 const startScreen = document.getElementById('start-screen');
@@ -43,52 +47,91 @@ const loadingFill = document.getElementById('loading-fill');
 const gameContainer = document.getElementById('game-container');
 const playBtn = document.getElementById('play-btn');
 
-// Create interaction prompt
-const interactPrompt = document.createElement('div');
-interactPrompt.id = 'interact-prompt';
-interactPrompt.style.cssText = `
+// Create level select screen
+const levelSelectScreen = document.createElement('div');
+levelSelectScreen.id = 'level-select';
+levelSelectScreen.style.cssText = `
     position: fixed;
-    bottom: 150px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0,0,0,0.8);
-    color: white;
-    padding: 12px 24px;
-    border-radius: 8px;
-    font-family: sans-serif;
-    font-size: 16px;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
     display: none;
-    z-index: 100;
-    border: 2px solid #00ffff;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px;
+    z-index: 50;
+    overflow-y: auto;
 `;
-document.body.appendChild(interactPrompt);
+levelSelectScreen.innerHTML = `
+    <h1 style="color: white; font-family: sans-serif; font-size: 2.5rem; margin-bottom: 10px; 
+        background: linear-gradient(90deg, #ff6b35, #f7c59f);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+        SELECT TRACK
+    </h1>
+    <p style="color: #888; font-family: sans-serif; margin-bottom: 30px;">Choose your destination</p>
+    <div id="track-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; max-width: 1200px; width: 100%;"></div>
+    <button id="back-btn" style="margin-top: 30px; padding: 12px 30px; font-size: 1rem; color: #888; 
+        background: transparent; border: 2px solid #444; border-radius: 8px; cursor: pointer;
+        transition: all 0.3s;">← Back to Menu</button>
+`;
+document.body.appendChild(levelSelectScreen);
 
-// Loading status
+// Create loading status
 const loadingStatus = document.createElement('div');
-loadingStatus.id = 'loading-status';
-loadingStatus.style.cssText = `
-    color: white;
-    font-size: 14px;
-    margin-top: 20px;
-`;
-document.querySelector('.loading-bar')?.parentNode?.appendChild(loadingStatus);
+loadingStatus.style.cssText = 'color: white; font-size: 14px; margin-top: 20px; font-family: sans-serif;';
+loadingScreen.appendChild(loadingStatus);
 
-// Start button
-playBtn.addEventListener('click', startGame);
+// Populate track grid
+const trackGrid = document.getElementById('track-grid');
+TRACKS.forEach(track => {
+    const card = document.createElement('div');
+    card.className = 'track-card';
+    card.style.cssText = `
+        background: rgba(255,255,255,0.05);
+        border: 2px solid rgba(255,255,255,0.1);
+        border-radius: 12px;
+        padding: 20px;
+        cursor: pointer;
+        transition: all 0.3s;
+    `;
+    card.innerHTML = `
+        <h3 style="color: white; font-family: sans-serif; margin: 0 0 8px 0; font-size: 1.1rem;">${track.name}</h3>
+        <span style="color: #ff6b35; font-family: sans-serif; font-size: 0.85rem; 
+            background: rgba(255,107,53,0.2); padding: 4px 10px; border-radius: 20px;">${track.theme}</span>
+    `;
+    card.addEventListener('mouseenter', () => {
+        card.style.borderColor = '#ff6b35';
+        card.style.transform = 'translateY(-4px)';
+    });
+    card.addEventListener('mouseleave', () => {
+        card.style.borderColor = 'rgba(255,255,255,0.1)';
+        card.style.transform = 'translateY(0)';
+    });
+    card.addEventListener('click', () => loadTrack(track.id));
+    trackGrid.appendChild(card);
+});
+
+// Event listeners
+playBtn.addEventListener('click', showLevelSelect);
+document.getElementById('back-btn').addEventListener('click', showMenu);
 
 // Keyboard controls
 document.addEventListener('keydown', (e) => {
+    if (gameState !== 'playing') return;
     const key = e.key.toLowerCase();
     if (key in keys) keys[key] = true;
     if (key === 'shift') keys.shift = true;
-    if (key === ' ') keys.space = true;
-    
-    // Jump
-    if (key === ' ' && isGrounded) {
-        velocityY = jumpForce;
-        isGrounded = false;
-        switchAnimation('jump');
+    if (key === ' ') {
+        keys.space = true;
+        if (isGrounded) {
+            velocityY = jumpForce;
+            isGrounded = false;
+            switchAnimation('jump');
+        }
     }
+    if (key === 'escape') showLevelSelect();
 });
 
 document.addEventListener('keyup', (e) => {
@@ -98,23 +141,92 @@ document.addEventListener('keyup', (e) => {
     if (key === ' ') keys.space = false;
 });
 
-async function startGame() {
-    startScreen.classList.add('hidden');
-    loadingScreen.classList.add('active');
-    
-    initScene();
-    await loadModels();
-    
+function showMenu() {
+    gameState = 'menu';
+    startScreen.style.display = 'flex';
+    startScreen.classList.add('active');
+    levelSelectScreen.style.display = 'none';
     loadingScreen.classList.remove('active');
-    gameContainer.classList.add('active');
+    gameContainer.classList.remove('active');
+}
+
+function showLevelSelect() {
+    gameState = 'levelselect';
+    startScreen.style.display = 'none';
+    startScreen.classList.remove('active');
+    levelSelectScreen.style.display = 'flex';
+    loadingScreen.classList.remove('active');
+    gameContainer.classList.remove('active');
+}
+
+async function loadTrack(trackId) {
+    gameState = 'loading';
+    levelSelectScreen.style.display = 'none';
+    loadingScreen.classList.add('active');
+    loadingFill.style.width = '0%';
+    loadingStatus.textContent = 'Initializing...';
     
-    animate();
+    // Initialize scene if needed
+    if (!scene) {
+        initScene();
+    }
+    
+    // Remove old track
+    if (currentTrack) {
+        scene.remove(currentTrack);
+        currentTrack = null;
+    }
+    
+    // Load player if not loaded
+    if (!player) {
+        await loadPlayer();
+    }
+    
+    // Reset player position
+    player.position.set(0, 10, 0);
+    velocityY = 0;
+    
+    // Load track
+    loadingStatus.textContent = `Loading ${trackId}...`;
+    loadingFill.style.width = '30%';
+    
+    try {
+        const trackGltf = await loadGLTF(`models/burnout/${trackId}.glb`, (p) => {
+            if (p.total > 0) {
+                const progress = 30 + (p.loaded / p.total) * 70;
+                loadingFill.style.width = progress + '%';
+            }
+        });
+        
+        currentTrack = trackGltf.scene;
+        currentTrack.scale.setScalar(1);
+        currentTrack.position.set(0, 0, 0);
+        scene.add(currentTrack);
+        
+        console.log(`🏎️ Loaded: ${trackId}`);
+    } catch (e) {
+        console.error('Failed to load track:', e);
+        loadingStatus.textContent = 'Error loading track!';
+        return;
+    }
+    
+    loadingFill.style.width = '100%';
+    loadingStatus.textContent = 'Ready!';
+    
+    // Start game
+    setTimeout(() => {
+        gameState = 'playing';
+        loadingScreen.classList.remove('active');
+        gameContainer.classList.add('active');
+        if (!renderer) return;
+        animate();
+    }, 500);
 }
 
 function initScene() {
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87CEEB); // Sky blue
-    scene.fog = new THREE.Fog(0x87CEEB, 100, 800);
+    scene.background = new THREE.Color(0x87CEEB);
+    scene.fog = new THREE.Fog(0x87CEEB, 100, 500);
     
     camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
     camera.position.set(0, 5, 10);
@@ -134,11 +246,8 @@ function initScene() {
     const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
     sunLight.position.set(100, 150, 50);
     sunLight.castShadow = true;
-    sunLight.shadow.mapSize.width = 2048;
-    sunLight.shadow.mapSize.height = 2048;
     scene.add(sunLight);
     
-    // Hemisphere light for nicer outdoor lighting
     const hemiLight = new THREE.HemisphereLight(0x87CEEB, 0x444444, 0.5);
     scene.add(hemiLight);
     
@@ -152,37 +261,15 @@ function loadGLTF(path, onProgress) {
     });
 }
 
-function updateLoadingStatus(text) {
-    if (loadingStatus) loadingStatus.textContent = text;
-}
-
-async function loadModels() {
-    const totalTracks = TRACK_LAYOUT.length;
-    let loadedTracks = 0;
+async function loadPlayer() {
+    loadingStatus.textContent = 'Loading character...';
+    loadingFill.style.width = '15%';
     
-    // Load skybox first
     try {
-        updateLoadingStatus('Loading skybox...');
-        const skyboxGltf = await loadGLTF('models/skybox-futuristic-city.glb');
-        const skybox = skyboxGltf.scene;
-        skybox.scale.setScalar(500);
-        scene.add(skybox);
-        scene.background = null;
-        scene.fog = null;
-        console.log('🌆 Skybox loaded!');
-    } catch (e) {
-        console.log('Using sky color background');
-    }
-    
-    loadingFill.style.width = '10%';
-    
-    // Load player
-    try {
-        updateLoadingStatus('Loading character...');
         const playerGltf = await loadGLTF('models/robot.glb');
         player = playerGltf.scene;
-        player.scale.setScalar(0.01);  // Adjusted for Burnout scale
-        player.position.set(0, 5, 0);
+        player.scale.setScalar(0.01);
+        player.position.set(0, 10, 0);
         player.castShadow = true;
         scene.add(player);
         
@@ -200,7 +287,6 @@ async function loadModels() {
                 }
             });
             
-            // Fallback
             const anims = playerGltf.animations;
             if (!animations.idle && anims[0]) animations.idle = mixer.clipAction(anims[0]);
             if (!animations.run && anims[0]) animations.run = mixer.clipAction(anims[0]);
@@ -216,41 +302,14 @@ async function loadModels() {
         const geo = new THREE.CapsuleGeometry(0.3, 1, 4, 8);
         const mat = new THREE.MeshStandardMaterial({ color: 0xff00ff });
         player = new THREE.Mesh(geo, mat);
-        player.position.set(0, 5, 0);
+        player.position.set(0, 10, 0);
         scene.add(player);
     }
-    
-    loadingFill.style.width = '20%';
-    
-    // Load all Burnout tracks
-    for (let i = 0; i < TRACK_LAYOUT.length; i++) {
-        const track = TRACK_LAYOUT[i];
-        try {
-            updateLoadingStatus(`Loading ${track.name}... (${i + 1}/${totalTracks})`);
-            const trackGltf = await loadGLTF(`models/burnout/${track.name}.glb`);
-            const trackModel = trackGltf.scene;
-            trackModel.scale.setScalar(1);
-            trackModel.position.set(...track.position);
-            trackModel.receiveShadow = true;
-            scene.add(trackModel);
-            loadedTracks++;
-            console.log(`🏎️ Loaded: ${track.name}`);
-        } catch (e) {
-            console.log(`Failed to load ${track.name}:`, e.message);
-        }
-        
-        const progress = 20 + (loadedTracks / totalTracks) * 80;
-        loadingFill.style.width = progress + '%';
-    }
-    
-    updateLoadingStatus(`Loaded ${loadedTracks} tracks!`);
-    loadingFill.style.width = '100%';
 }
 
 function switchAnimation(name, fadeTime = 0.2) {
     const newAction = animations[name];
     if (!newAction || currentAction === newAction) return;
-    
     if (currentAction) currentAction.fadeOut(fadeTime);
     newAction.reset().fadeIn(fadeTime).play();
     currentAction = newAction;
@@ -263,29 +322,24 @@ function updatePlayer(delta) {
     const isRunning = keys.shift && isMoving;
     const speed = isRunning ? runSpeed : moveSpeed;
     
-    // Gravity
     velocityY += gravity * delta;
     player.position.y += velocityY * delta;
     
-    // Ground collision
     if (player.position.y <= groundLevel) {
         player.position.y = groundLevel;
         velocityY = 0;
         isGrounded = true;
     }
     
-    // Animations
     if (isGrounded) {
         if (isRunning) switchAnimation('run');
         else if (isMoving) switchAnimation('walk');
         else switchAnimation('idle');
     }
     
-    // Rotation
     if (keys.a) player.rotation.y += rotateSpeed * delta;
     if (keys.d) player.rotation.y -= rotateSpeed * delta;
     
-    // Movement
     if (keys.w) {
         player.position.x -= Math.sin(player.rotation.y) * speed * delta;
         player.position.z -= Math.cos(player.rotation.y) * speed * delta;
@@ -310,13 +364,20 @@ function updateCamera() {
 }
 
 function onWindowResize() {
+    if (!camera || !renderer) return;
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
+let animationId = null;
 function animate() {
-    requestAnimationFrame(animate);
+    if (gameState !== 'playing') {
+        animationId = null;
+        return;
+    }
+    
+    animationId = requestAnimationFrame(animate);
     const delta = clock.getDelta();
     
     if (mixer) mixer.update(delta);
