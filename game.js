@@ -1068,9 +1068,10 @@ let remoteConnected = false;
 
 function initRemoteControl() {
     // Use cloudflared tunnel for remote control (wss for HTTPS)
+    // NOTE: Tunnel URL changes on restart - check /tmp/cf.log on server
     const wsUrl = location.hostname === 'localhost' 
         ? 'ws://localhost:8765/game'
-        : 'wss://mysql-highest-issued-assigned.trycloudflare.com/game';
+        : 'wss://vcr-studios-monster-obligation.trycloudflare.com/game';
     
     try {
         remoteWs = new WebSocket(wsUrl);
