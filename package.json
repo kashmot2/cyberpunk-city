@@ -1,0 +1,24 @@
+{
+  "name": "cyberpunk-game",
+  "version": "1.0.0",
+  "description": "",
+  "main": "game.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kashmot2/cyberpunk-city.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kashmot2/cyberpunk-city/issues"
+  },
+  "homepage": "https://github.com/kashmot2/cyberpunk-city#readme",
+  "dependencies": {
+    "ws": "^8.19.0"
+  },
+  "type": "module"
+}

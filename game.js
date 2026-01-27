@@ -1058,3 +1058,186 @@ function animate() {
     
     renderer.render(scene, camera);
 }
+
+// ============================================
+// REMOTE CONTROL - WebSocket Client
+// ============================================
+
+let remoteWs = null;
+let remoteConnected = false;
+
+function initRemoteControl() {
+    // Use cloudflared tunnel for remote control (wss for HTTPS)
+    const wsUrl = location.hostname === 'localhost' 
+        ? 'ws://localhost:8765/game'
+        : 'wss://mysql-highest-issued-assigned.trycloudflare.com/game';
+    
+    try {
+        remoteWs = new WebSocket(wsUrl);
+        
+        remoteWs.onopen = () => {
+            remoteConnected = true;
+            console.log('🎮 Remote control connected!');
+            showRemoteStatus('Connected', 'green');
+            
+            // Send initial state
+            remoteWs.send(JSON.stringify({
+                type: 'connected',
+                gameState: gameState,
+                position: player ? { x: player.position.x, y: player.position.y, z: player.position.z } : null
+            }));
+        };
+        
+        remoteWs.onmessage = (event) => {
+            try {
+                const cmd = JSON.parse(event.data);
+                handleRemoteCommand(cmd);
+            } catch (e) {
+                console.error('Remote command error:', e);
+            }
+        };
+        
+        remoteWs.onclose = () => {
+            remoteConnected = false;
+            console.log('🔌 Remote control disconnected');
+            showRemoteStatus('Disconnected', 'red');
+            // Reconnect after 3 seconds
+            setTimeout(initRemoteControl, 3000);
+        };
+        
+        remoteWs.onerror = (e) => {
+            console.log('Remote control not available (server not running)');
+        };
+    } catch (e) {
+        console.log('WebSocket not supported or server unavailable');
+    }
+}
+
+function handleRemoteCommand(cmd) {
+    console.log('📥 Remote command:', cmd);
+    
+    switch (cmd.action) {
+        case 'press':
+            // Hold key down
+            if (keys.hasOwnProperty(cmd.key)) {
+                keys[cmd.key] = true;
+            }
+            break;
+            
+        case 'release':
+            // Release key
+            if (keys.hasOwnProperty(cmd.key)) {
+                keys[cmd.key] = false;
+            }
+            break;
+            
+        case 'tap':
+            // Press and release after duration
+            if (keys.hasOwnProperty(cmd.key)) {
+                keys[cmd.key] = true;
+                setTimeout(() => {
+                    keys[cmd.key] = false;
+                }, cmd.duration || 100);
+            }
+            break;
+            
+        case 'move':
+            // High-level movement command
+            executeMove(cmd.direction, cmd.duration || 1000, cmd.sprint);
+            break;
+            
+        case 'stop':
+            // Release all keys
+            Object.keys(keys).forEach(k => keys[k] = false);
+            break;
+            
+        case 'jump':
+            // Jump if grounded
+            if (isGrounded) {
+                keys.space = true;
+                velocityY = jumpForce;
+                isGrounded = false;
+                setTimeout(() => keys.space = false, 100);
+            }
+            break;
+            
+        case 'status':
+            // Report current status
+            if (remoteWs && remoteWs.readyState === WebSocket.OPEN) {
+                remoteWs.send(JSON.stringify({
+                    type: 'status',
+                    gameState: gameState,
+                    position: player ? {
+                        x: player.position.x.toFixed(2),
+                        y: player.position.y.toFixed(2),
+                        z: player.position.z.toFixed(2)
+                    } : null,
+                    rotation: player ? player.rotation.y.toFixed(2) : null,
+                    isGrounded: isGrounded,
+                    keys: { ...keys }
+                }));
+            }
+            break;
+    }
+}
+
+function executeMove(direction, duration, sprint = false) {
+    // Map directions to keys
+    const dirMap = {
+        'forward': 'w',
+        'back': 's',
+        'backward': 's',
+        'left': 'a',
+        'right': 'd'
+    };
+    
+    const key = dirMap[direction];
+    if (!key) return;
+    
+    // Enable sprint if requested
+    if (sprint) keys.shift = true;
+    
+    // Press movement key
+    keys[key] = true;
+    
+    // Release after duration
+    setTimeout(() => {
+        keys[key] = false;
+        if (sprint) keys.shift = false;
+    }, duration);
+}
+
+function showRemoteStatus(text, color) {
+    let statusEl = document.getElementById('remote-status');
+    if (!statusEl) {
+        statusEl = document.createElement('div');
+        statusEl.id = 'remote-status';
+        statusEl.style.cssText = `
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-family: monospace;
+            font-size: 12px;
+            color: white;
+            z-index: 1000;
+            transition: all 0.3s;
+        `;
+        document.body.appendChild(statusEl);
+    }
+    statusEl.textContent = '🎮 ' + text;
+    statusEl.style.background = color === 'green' ? 'rgba(0, 200, 0, 0.8)' : 'rgba(200, 0, 0, 0.8)';
+}
+
+// Initialize remote control when page loads
+window.addEventListener('load', () => {
+    setTimeout(initRemoteControl, 1000);
+});
+
+// Periodic status updates when connected
+setInterval(() => {
+    if (remoteConnected && remoteWs && gameState === 'playing') {
+        handleRemoteCommand({ action: 'status' });
+    }
+}, 2000);
