@@ -1071,7 +1071,7 @@ function initRemoteControl() {
     // NOTE: Tunnel URL changes on restart - check /tmp/cf.log on server
     const wsUrl = location.hostname === 'localhost' 
         ? 'ws://localhost:8765/game'
-        : 'wss://vcr-studios-monster-obligation.trycloudflare.com/game';
+        : 'wss://involves-miniature-replied-dirt.trycloudflare.com/game';
     
     try {
         remoteWs = new WebSocket(wsUrl);
